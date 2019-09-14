@@ -1,0 +1,391 @@
+//=========================================================================================================
+//
+// Doc # : TBD
+// Date  : 14 Aug 2018            
+// Last Updated:  Nov 6 2018 (BB)
+// MTJ Model Version: 0.5
+// Associated PDK version: 1.3-3.0 
+// MTJ state convention:  High (MAX) resistance state (AP) : 0  |   Low (MIN) resistance state (P) : 1 
+// ---------------------------------------------------------------------------------------------------
+
+// VerilnA for tech_support3, test, verilna
+
+`include "constants.vams"
+`include "disciplines.vams"
+
+//pragma protect
+//pragma protect begin
+module rmtj(a,b,mz);
+
+  input mz;
+  inout a,b;
+  electrical a,b,mz;
+  
+  
+  parameter real initial_state = 0;
+  parameter real CurRatio = 2.05;
+  parameter real mc      = 0;
+  parameter real Temp_C  = 25 from [-40:125];
+
+  parameter real eps0    =  8.85*1e-12;          // [F/m]
+  parameter real eps_MgO =  8.8;                 // [Dless] 
+  
+  parameter real TMR_T_cfc   = 0.0028;           // [1/deg C]  
+  parameter real D_mean      = 80e-9;                                  // [m]    
+  parameter real D_Sigma     = 1.75e-9 *mc;                             // [m]   
+  parameter real E_mean      = 3e-9;                                    // [m]      
+  parameter real E_Sigma     = 0.3e-9 *mc;                              // [m] 
+  parameter real eCDnm       = (D_mean - 2*E_mean)*1e9;                // [nm]
+  parameter real t_MgO       = 1.2e-9;                                  // [m]      
+  parameter real A_mean      = 3.1416*pow( (D_mean-2*E_mean)/2, 2);     // [m^2]
+  parameter real A_mean_mag  = 3.1416*pow((D_mean/2), 2);           // [m^2]
+  parameter real RA_min_mean = 10e-12;                              // [m^2]  
+  parameter real RA_sig      = 1623.3/pow(eCDnm,1.551)/100;         // [ratio]    
+  parameter real RA_min_Sigma= RA_sig*RA_min_mean*mc;               // [Ohm.m^2]
+  parameter real TMR_mean    = 1.7;                                     // Ratio 
+  parameter real RA_max_mean = (1+TMR_mean)*RA_min_mean;              // [Ohm.m^2]
+  parameter real RA_max_Sigma= RA_sig*RA_max_mean*mc;               // [Ohm.m^2]
+  parameter real rho_RAminRAmax = 0.55;                              // [Dless] 
+  parameter real TMR0_T         = TMR_mean*(1-TMR_T_cfc*(Temp_C - 25));      // [Dless]
+  
+  //*** V&T dependence of TMR      *******************************************************
+  //parameter real L1_p = -(0.0001585*pow(Temp_C, 2) - 0.04378*Temp_C + 11.5);   // [1/V^2]
+  //parameter real L2_p = 0.9954;                                                // [Dless]
+  //parameter real R1_p = -(9.79e-5*pow(Temp_C, 2) - 0.04469*Temp_C + 16.56);    // [1/V^2]
+  //parameter real R2_p = 0.9954 ;                                               // [Dless]
+  //---------------------------------------------------------------------------------------
+  parameter real Rmax_Slope_Tdep_pve = -0.00021*Temp_C  + 0.52525;
+  parameter real Rmax_Slope_Tdep_nve = -0.000525*Temp_C + 0.592625;
+  // Resistance Variations  ---------------------------------------------------------------
+  
+  parameter real rnd1 = 0;
+  parameter real rnd2 = 0;
+  parameter real rnd3 = 0;
+  parameter real rnd4 = 0;
+  
+  // Diameter ---------------------------------------------
+  parameter real Dmt = D_mean + D_Sigma * rnd1;           // [m]
+  // Encroachment -----------------------------------------
+  parameter real Enc = E_mean + E_Sigma * rnd2;           // [m]
+  // Area   -----------------------------------------------
+  parameter real A   = 3.1416 * pow((Dmt-2*Enc)/2 ,2);     //[m^2]
+  parameter real A_mag   = 3.1416 * pow(Dmt/2 ,2);         //[m^2]
+  //-------------------------------------------------------
+  
+  // MTJ Capacitance  -------------------
+  parameter real caps = (eps_MgO*eps0*A/t_MgO + 1.68*1e-17); // 
+  //capacitor #(.c(caps)) C1 (a,b);
+  //----------------------------------------------
+
+
+  //Resistance-area  -----------------------------------------------------------------------
+  parameter real RA_min = RA_min_mean + RA_min_Sigma * rnd3;                         // [Ohm.m^2] 
+  parameter real RA_max_rnd = rho_RAminRAmax*rnd3 + sqrt(1-pow(rho_RAminRAmax ,2))*rnd4;
+  parameter real RA_max = RA_max_mean + RA_max_Sigma * RA_max_rnd;                   // [Ohm.m^2]  
+  //----------------------------------------------------------------------------------------
+
+  //====================================
+  parameter real Rmin = RA_min / A;        // [Ohm] 
+  parameter real Rmax_RT_V0 = RA_max/A;     //[Ohm]
+  //====================================
+  
+  
+  //Switching Current    =======================================================================  
+  parameter real pw = 200e-9 from [199.9e-9 : 200.1e-9];
+  parameter real rnd5 = 0;
+  parameter real rnd6 = 0;
+  parameter real rnd7 = 0;
+  parameter real rnd8 = 0;
+  
+  
+  //  Temperature Coefficients  --------------------------- 
+  parameter real Ic0_T_cfc = 0.0014;
+  parameter real TmpDN_Sig_T_cfc1 = 0.0099;    // [1/deg C]
+  parameter real TmpDN_Sig_T_cfc2 = 2.4;      // [Dless]
+  parameter real TmpUP_Sig_T_cfc1 = 0.0146;    // [1/deg C]
+  parameter real TmpUP_Sig_T_cfc2 = 2.87;      // [Dless]  
+  // ------------------------------------------------------
+  
+  
+  //  Pulse-Width Coefficients  --------------------------- 
+  parameter real Tmp_Sig_pw_cfc1 = - 0.174;   // [Dless]
+  parameter real Tmp_Sig_pw_cfc2 = 1.92;      // [Dless]
+  parameter real Jc_pw_cfc1 = 0.048;          // [Dless]
+  parameter real Jc_pw_cfc2 = 0.005;          // [Dless]
+  //-------------------------------------------------------
+  
+
+  // Temporal and Pulse width dependence (Switching Sigma) -------------------------------
+  parameter real sptUP_s = 0.0615;
+  parameter real sptDN_s = 0.0535;
+  parameter real TmpDN_Sig  = (TmpDN_Sig_T_cfc1*Temp_C + TmpDN_Sig_T_cfc2)/100 * mc;
+  parameter real sig_tmp_DN = (Tmp_Sig_pw_cfc1*ln(pw/1e-9) + Tmp_Sig_pw_cfc2 ) * TmpDN_Sig;
+  parameter real TmpUP_Sig  = (TmpUP_Sig_T_cfc1*Temp_C + TmpUP_Sig_T_cfc2)/100 * mc;
+  parameter real sig_tmp_UP = (Tmp_Sig_pw_cfc1*ln(pw/1e-9) + Tmp_Sig_pw_cfc2 ) * TmpUP_Sig; 
+  //----------------------------------------------------------------------------------------
+  
+  
+  // Switching Current Density      -------------------------------------------------
+  parameter real JcUP200ns_RT  = - 3.907e10;              // [A/m^2]     
+  parameter real JcDN200ns_RT  = - JcUP200ns_RT/CurRatio; // [A/m^2]     
+  parameter real Jc0UP_RT      = 1.2543*JcUP200ns_RT;     // [A/m^2]     
+  parameter real Jc0DN_RT      = -Jc0UP_RT/CurRatio;      // [A/m^2]   
+  parameter real JcUP_RT_Sigma = sptUP_s*mc;              // [Dless, Ratio to average]
+  parameter real JcDN_RT_Sigma = sptDN_s*mc;              // [Ratio to average]
+  //----------------------------------------------------------------------------------
+  
+  //Spatial IDN    ===========================================================================================
+  // Pulse width & Temperature dependence of switching current density
+  parameter real Jc0DN_OT = (-Ic0_T_cfc*(Temp_C-25)+1) * Jc0DN_RT;                    // [A/m^2]  @T  
+  //
+  parameter real JcDN200ns_OT = (-Ic0_T_cfc*(Temp_C-25)+1) * JcDN200ns_RT;            // [A/m^2]  @T    
+  parameter real JcDN_OT =  (1 - Jc_pw_cfc1*ln(Jc_pw_cfc2*pw/1e-9) )* JcDN200ns_OT;   // [A/m^2]  @Pulse and @T 
+  // ==========================================================================================================
+  
+  //Spatial IUP    ===========================================================================================
+  // Pulse width & Temperature dependence of switching current density
+  parameter real Jc0UP_OT = (-Ic0_T_cfc*(Temp_C-25)+1) * Jc0UP_RT;                    // [A/m^2]  @T  
+
+  parameter real JcUP200ns_OT = (-Ic0_T_cfc*(Temp_C-25)+1) * JcUP200ns_RT;            // [A/m^2]  @T    
+  parameter real JcUP_OT =  (1 - Jc_pw_cfc1*ln(Jc_pw_cfc2*pw/1e-9) )* JcUP200ns_OT;   // [A/m^2]  @Pulse and @T
+  // ==========================================================================================================
+  
+  
+  //=======================   AP to P (DN) switching current           =======================================
+  //Jc0 variations ----------------------------------------------------
+  parameter real JcDNs = JcDN_OT + JcDN_RT_Sigma * JcDN_OT * rnd7;      //[A/m^2]
+  parameter real IcDN = JcDNs * A_mag;                                  // [A] 
+  // --------------------------------------------------------------------
+
+  // Temporal Variations of Switching Current   -------------------
+  parameter real IDN_tmp_Sigma = sig_tmp_DN * IcDN;          // [A]   
+  // --------------------------------------------------------------
+ 
+  // AP-P (DN) Switching Current         --------------------------
+  parameter real IDN = IcDN + IDN_tmp_Sigma * rnd8;          //[A]    
+  //---------------------------------------------------------------
+  
+  
+  //=======================   P to AP (UP) switching current       ==========================================
+
+  //Jc0 variations ---------------------------------------------------------------
+  parameter real JcUPs  =  JcUP_OT + JcUP_RT_Sigma * JcUP_OT * rnd5;    // [A/m^2]
+  parameter real IcUP =    JcUPs* A_mag;                                // [A]  
+  //------------------------------------------------------------------------------
+  
+  // Temporal Variations of Switching Current   -------------
+  parameter real IUP_tmp_Sigma =  sig_tmp_UP * IcUP;   // [A] 
+  //---------------------------------------------------------
+
+  // P-AP (UP)  Switching Current     ------------------
+  parameter real IUP = IcUP + IUP_tmp_Sigma * rnd6;
+  //----------------------------------------------------
+  
+  
+   real P,FIT,Rmax,s,r;
+   integer fp, dc_mode;
+
+
+   analog begin
+	  if (analysis("dc")) 
+		 dc_mode=1;
+	  else 
+		 dc_mode=0;
+	
+	
+	  //P = (L1_p*pow(V(a,b), 2) + L2_p) *(V(b,a)>=-0.02) * (V(b,a)<0)  + (R1_p*pow(V(a,b), 2) + R2_p) * (V(b,a)<= 0.015) * (V(b,a)>=0);
+      FIT = (Rmax_Slope_Tdep_nve*V(b,a)+1) * (V(b,a)<0) + (-Rmax_Slope_Tdep_pve*V(b,a)+1) * (V(b,a)>=0);  // + P;
+      Rmax = (1+TMR0_T) * (Rmax_RT_V0/(1+TMR_mean)) * FIT;
+
+      s = dc_mode * initial_state + (1-dc_mode) * (V(mz) + 1)/2;
+      
+ 	  r = s*Rmin + (1-s)*Rmax;
+      I(a,b) <+ V(a,b)/r;
+	  
+//pragma protect end   
+
+	  fp = $fopen("mtj_fls_Data.csv", "w");
+	  $fstrobe(fp,"%e,%e,%e,%e,%e,%e", $abstime, r , V(b,a), V(b,a)/r, IDN, IUP);
+  
+   end  
+endmodule
+
+
+
+
+//__________________________________________________________________________________________________________________________________________  
+ 
+
+//pragma protect
+//pragma protect begin
+ 
+module Dyn(n1,n2,mz,g);
+ 
+  inout n1,n2,mz,g;
+  electrical n1,n2,mz,g;
+  
+  
+  
+  parameter real e     = 1.6e-19;
+  parameter real mu_B  = 9.274e-21;
+  parameter real Ms    = 1156;
+  parameter real Vol   = (80*80*2)*1e-21;
+  parameter real Ns    = (Ms*Vol)/mu_B;
+  parameter real alpha = 0.01;
+  parameter real c     = (1+pow(alpha,2))*e*Ns; 
+  parameter real I0UP  = 246.337e-6;
+  parameter real I0DN  = 120.164e-6;
+  parameter real CurRatio = 2.05;
+
+  
+/*  
+  parameter real hbar  = 1.055e-34;
+  parameter real Ku2   = 3.48e6/2;
+  parameter real Hk    = 2*Ku2/Ms; 
+  parameter real hd    = 0*4*3.14*Ms/Hk; 
+  parameter real hsc   = alpha*(1+hd/2);
+  parameter real Isc   = hsc * Hk * Ms*Vol * 1e-7 * 2*e/hbar;
+  parameter real Icmag = hsc * Hk * Ms*Vol * 1e-7 * 2*e/hbar / eta;
+*/  
+
+  parameter real initial_state = 1;
+  parameter real mc =0;
+  parameter real Temp_C = 25 from [-40:125];
+  parameter real pw =200e-9 from [199.9e-9 : 200.1e-9];
+   
+  parameter real rnd1 = 0;
+  parameter real rnd5 = 0;
+  parameter real rnd6 = 0;
+  parameter real rnd7 = 0;
+  parameter real rnd8 = 0;
+  
+  // -------------------------------------------------------------
+  parameter real D_mean =   80e-9;                      // [m]       
+  parameter real D_Sigma =  1.75e-9 *mc;                // [m]   
+  // Diameter ----------------------------------------------------
+  parameter real Dmt = D_mean + D_Sigma * rnd1;         // [m]
+  // Area   ------------------------------------------------------
+  parameter real A_mag   = 3.1416 * pow(Dmt/2 ,2);      //[m^2]
+  //--------------------------------------------------------------
+  
+  
+  //  Temperature Coefficients  --------------------------- 
+  parameter real Ic0_T_cfc = 0.0014;
+  parameter real TmpDN_Sig_T_cfc1 = 0.0099;    // [1/deg C]
+  parameter real TmpDN_Sig_T_cfc2 = 2.4;      // [Dless]
+  parameter real TmpUP_Sig_T_cfc1 = 0.0146;    // [1/deg C]
+  parameter real TmpUP_Sig_T_cfc2 = 2.87;      // [Dless]  
+  // ------------------------------------------------------
+  
+  
+  //  Pulse-Width Coefficients  --------------------------- 
+  parameter real Tmp_Sig_pw_cfc1 = - 0.174;   // [Dless]
+  parameter real Tmp_Sig_pw_cfc2 = 1.92;      // [Dless]
+  parameter real Jc_pw_cfc1 = 0.048;          // [Dless]
+  parameter real Jc_pw_cfc2 = 0.005;          // [Dless]
+  //-------------------------------------------------------
+  
+
+  // Temporal and Pulse width dependence (Switching Sigma) -------------------------------
+  parameter real TmpDN_Sig =  (TmpDN_Sig_T_cfc1*Temp_C + TmpDN_Sig_T_cfc2)/100 * mc;
+  parameter real sig_tmp_DN = (Tmp_Sig_pw_cfc1*ln(pw/1e-9) + Tmp_Sig_pw_cfc2 )* TmpDN_Sig;
+  parameter real TmpUP_Sig =  (TmpUP_Sig_T_cfc1*Temp_C + TmpUP_Sig_T_cfc2)/100 * mc;
+  parameter real sig_tmp_UP = (Tmp_Sig_pw_cfc1*ln(pw/1e-9) + Tmp_Sig_pw_cfc2 )* TmpUP_Sig; 
+  //----------------------------------------------------------------------------------------
+  
+  
+  // Switching Current Density      -------------------------------------------------
+  parameter real sptUP_s = 0.0615;                        // [Ratio]
+  parameter real sptDN_s = 0.0535;                        // [Ratio]
+  parameter real JcUP200ns_RT  = - 3.907e10;          // [A/m^2]     
+  parameter real JcDN200ns_RT  = - JcUP200ns_RT/CurRatio; // [A/m^2]     
+  parameter real Jc0UP_RT      = 1.2543*JcUP200ns_RT;     // [A/m^2]     
+  parameter real Jc0DN_RT      = -Jc0UP_RT/CurRatio;      // [A/m^2]   
+  parameter real JcUP_RT_Sigma = sptUP_s*mc;              // [Dless, Ratio to average]
+  parameter real JcDN_RT_Sigma = sptDN_s*mc;              // [Ratio to average]
+  //----------------------------------------------------------------------------------
+  
+  //Spatial IDN    ===========================================================================================
+  // Pulse width & Temperature dependence of switching current density
+  parameter real Jc0DN_OT = (-Ic0_T_cfc*(Temp_C-25)+1) * Jc0DN_RT;                    // [A/m^2]  @T  
+  //
+  parameter real JcDN200ns_OT = (-Ic0_T_cfc*(Temp_C-25)+1) * JcDN200ns_RT;            // [A/m^2]  @T    
+  parameter real JcDN_OT =  (1 - Jc_pw_cfc1*ln(Jc_pw_cfc2*pw/1e-9) )* JcDN200ns_OT;   // [A/m^2]  @Pulse and @T 
+  // ==========================================================================================================
+  
+  //Spatial IUP    ===========================================================================================
+  // Pulse width & Temperature dependence of switching current density
+  parameter real Jc0UP_OT = (-Ic0_T_cfc*(Temp_C-25)+1) * Jc0UP_RT;                    // [A/m^2]  @T  
+
+  parameter real JcUP200ns_OT = (-Ic0_T_cfc*(Temp_C-25)+1) * JcUP200ns_RT;            // [A/m^2]  @T    
+  parameter real JcUP_OT =  (1 - Jc_pw_cfc1*ln(Jc_pw_cfc2*pw/1e-9) )* JcUP200ns_OT;   // [A/m^2]  @Pulse and @T
+  // ==========================================================================================================
+  
+  
+  //=======================   AP to P (DN) switching current           =======================================
+  //Jc0 variations ----------------------------------------------------
+  parameter real JcDNs = JcDN_OT + JcDN_RT_Sigma * JcDN_OT * rnd7;      //[A/m^2]
+  parameter real IcDN = JcDNs * A_mag;                                  // [A] 
+  // --------------------------------------------------------------------
+
+  // Temporal Variations of Switching Current   -------------
+  parameter real IDN_tmp_Sigma = sig_tmp_DN * IcDN;               // [A]   
+  // --------------------------------------------------------
+ 
+  // AP-P (DN) Switching Current         --------------------------
+  parameter real IDN = IcDN + IDN_tmp_Sigma * rnd8;          //[A]    
+  //---------------------------------------------------------------
+  
+  
+  //=======================   P to AP (UP) switching current       ==========================================
+
+  //Jc0 variations ---------------------------------------------------------------
+  parameter real JcUPs  =  JcUP_OT + JcUP_RT_Sigma * JcUP_OT * rnd5;         // [A/m^2]
+  parameter real IcUP =    JcUPs* A_mag;                                     // [A]  
+  //------------------------------------------------------------------------------
+  
+  // Temporal Variations of Switching Current   --------
+  parameter real IUP_tmp_Sigma =  sig_tmp_UP * IcUP;   // [A] 
+  //----------------------------------------------------
+
+  // P-AP (UP)  Switching Current     ------------------
+  parameter real IUP = IcUP + IUP_tmp_Sigma * rnd6;
+  //----------------------------------------------------
+
+  real Iin; 
+  
+  analog begin  
+    if (analysis("tran")) begin 
+		 Iin =   V(n2);                
+		 I(mz,g) <+   1e-12  * V(mz);   
+		 I(mz,g) <+   Iin / (CurRatio/(CurRatio-(CurRatio-1)*(Iin<0)))       * (1 - pow( (V(mz)- 1.5693e-2*V(mz)), 2)); // Source 
+		 I(mz,g) <+   (Iin>0) *   (I0DN*(1 - Ic0_T_cfc*(Temp_C-25)))         *  V(mz)   * (1 - pow(V(mz),2));         // DN Internal
+		 I(mz,g) <+   (Iin<0) *   (I0UP*(1 - Ic0_T_cfc*(Temp_C-25))/CurRatio)*  V(mz)   * (1 - pow(V(mz),2));         // UP Internal 
+		 I(mz,g) <+   -c*ddt(V(mz));
+		 
+	  
+		 @(cross(V(mz) - (-0.99), +1))	 
+			$bound_step(2e-10);	  
+		 @(cross(V(mz) - (0.9998), +1))	 
+			$bound_step(1e-9);	  	
+		 @(cross(V(mz) - 1, +1))	 
+			$bound_step(2e-10);			
+		 @(cross(V(mz) - 0.99, -1))	 
+			$bound_step(2e-10);	 
+		 @(cross(V(mz) - (-0.9998), -1))	 
+			$bound_step(1e-9);	 
+		 @(cross(V(mz) - (-1), -1))	 
+			$bound_step(2e-10);
+	
+//		
+    end //(For simulation mode: dc vs tran)
+  end
+endmodule
+
+//pragma protect end  
+
+
+
+
+
+
